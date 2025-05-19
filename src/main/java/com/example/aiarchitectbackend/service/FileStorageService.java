@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 
 @Service
@@ -40,31 +42,37 @@ public class FileStorageService {
     /**
      * Stores a file in a specified subfolder.
      *
-     * @param file      The file to store.
+     * @param fileBytes The byte array of the file to store
+     * @param originalFilenameHint A hint for the original filename, used for extension and naming.
      * @param subfolder The subfolder within the root storage path (e.g., "input/project_id" or "output/project_id").
      * @return The unique filename generated for the stored file.
      * @throws RuntimeException if storing fails.
      */
-    public String storeFile(MultipartFile file, String subfolder) {
-        if (file.isEmpty()) {
-            throw new RuntimeException("Failed to store empty file.");
+    public String storeFile(byte[] fileBytes, String originalFilenameHint, String subfolder) { // [cite: 69]
+        if (fileBytes == null || fileBytes.length == 0) {
+            throw new RuntimeException("Failed to store empty file data.");
         }
 
-        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
-        String extension = StringUtils.getFilenameExtension(originalFilename);
-        String uniqueFilename = UUID.randomUUID().toString() + (extension != null ? "." + extension : "");
+        String cleanOriginalFilename = StringUtils.cleanPath(originalFilenameHint);
+        String extension = StringUtils.getFilenameExtension(cleanOriginalFilename);
+        if (extension == null || extension.isEmpty()) {
+            // Default to .png if no extension can be determined, or handle as error
+            // For AI generated images, we might know the type (e.g., PNG from Imagen)
+            extension = "png";
+        }
+
+        String uniqueFilename = UUID.randomUUID().toString() + "." + extension;
 
         try {
             Path subfolderPath = this.rootStoragePath.resolve(subfolder).normalize();
-            Files.createDirectories(subfolderPath); // Ensure subfolder exists [cite: 28]
+            Files.createDirectories(subfolderPath); // Ensure subfolder exists
 
             Path targetLocation = subfolderPath.resolve(uniqueFilename);
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, targetLocation, StandardCopyOption.REPLACE_EXISTING);
-            }
+            Files.write(targetLocation, fileBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
             return uniqueFilename;
         } catch (IOException ex) {
-            throw new RuntimeException("Failed to store file " + originalFilename + " in " + subfolder, ex);
+            throw new RuntimeException("Failed to store file " + uniqueFilename + " from byte array in " + subfolder, ex);
         }
     }
 
